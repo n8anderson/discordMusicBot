@@ -60,7 +60,6 @@ class YTDLSource(ds.PCMVolumeTransformer):
 
         if 'entries' in data:
             # take first item from a playlist
-            print(data)
             data = data['entries'][0]
         filename = data['title'] if stream else ytdl.prepare_filename(data)
         return filename
@@ -93,8 +92,9 @@ async def leave(ctx):
 
 
 @musicBot.command(name='play', help='Searches for and plays a song if found')
-async def play(ctx, url):
-    print(ctx.message)
+async def play(ctx):
+    url = ctx.message.content[5:]
+
     try:
         server = ctx.message.guild
         voice_channel = server.voice_client
