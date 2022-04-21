@@ -28,7 +28,7 @@ TODO: Need to add options to select from a list of songs
 """
 ydl.utils.bug_reports_message = lambda: ''
 
-#Testing comment for push
+# Testing comment for push
 
 ytdl_format_options = {
     'format': 'bestaudio/best',
@@ -111,7 +111,7 @@ async def play(ctx):
             if not voice_channel.is_playing():
                 currently_playing = fileName
                 voice_channel.play(ds.FFmpegPCMAudio(executable='bin\\ffmpeg.exe', source=fileName),
-                                   after=lambda e: play_next(ctx, voice_channel))
+                                   after=lambda e: await play_next(ctx, vc=voice_channel))
                 await ctx.send("**Now playing: {}**".format(currently_playing))
             else:
                 queued_songs.append(fileName)
@@ -121,7 +121,7 @@ async def play(ctx):
         await ctx.send("I am not connected to a voice channel.")
 
 
-async def play_next(ctx, vc: ds.voice_client):
+async def play_next(ctx, *, vc: ds.voice_client):
     global currently_playing
 
     if len(queued_songs) > 0:
@@ -131,24 +131,49 @@ async def play_next(ctx, vc: ds.voice_client):
             await asyncio.sleep(1)
 
         if os.path.exists(currently_playing):
-            os.remove(currently_playing)
+            if queued_songs[0] != currently_playing:
+                os.remove(currently_playing)
 
         currently_playing = queued_songs.pop()
-        await vc.play(ds.FFmpegPCMAudio(executable='bin\\ffmpeg.exe', source=currently_playing),
-                      after=lambda e: play_next(ctx, vc))
+        vc.play(ds.FFmpegPCMAudio(executable='bin\\ffmpeg.exe', source=currently_playing),
+                after=lambda e: await play_next(ctx, vc=vc))
         await ctx.send("**Now playing: {}**".format(currently_playing))
     else:
         await ctx.send("Nothing to play.")
+
+
+@musicBot.command(name='enqueue', help='Queues the requested song to be played.',
+                  aliases=['queue', 'add', 'playnext'])
+async def enqueue(ctx):
+    global queued_songs
+    server = ctx.message.guild
+    voice_channel = server.voice_client
+
+    url = ctx.message.content[5:]
+
+    try:
+        async with ctx.typing():
+            fileName = await YTDLSource.from_url(url, loop=musicBot.loop)
+
+            if voice_channel.is_playing():
+                queued_songs.append(fileName)
+                await ctx.send("{} has been added to the queue.".format(fileName))
+            else:
+                queued_songs.append(fileName)
+                await play_next(ctx, vc=voice_channel)
+
+    except Exception as E:
+        print(str(E))
+        await ctx.send("Something broke, check the console.")
 
 
 @musicBot.command(name='skip', help='Skips the current song')
 async def skip(ctx):
     server = ctx.message.guild
     voice_channel = server.voice_client
-
     if voice_channel.is_playing():
         if len(queued_songs) > 0:
-            await play_next(ctx, voice_channel)
+            await play_next(ctx, vc=voice_channel)
         else:
             await ctx.send("Nothing to skip to.")
 
@@ -177,6 +202,7 @@ async def resume(ctx):
 
 @musicBot.command(name='stop', help='Stops the current song')
 async def stop(ctx):
+    global currently_playing
     voice_client = ctx.message.guild.voice_client
 
     if voice_client.is_paused() or voice_client.is_playing():
