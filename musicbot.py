@@ -1,5 +1,5 @@
 import asyncio
-
+import warnings
 import discord as ds
 from discord.ext import commands, tasks
 import os
@@ -106,12 +106,17 @@ async def play(ctx):
         server = ctx.message.guild
         voice_channel = server.voice_client
 
+        def next_song():
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                play_next(ctx, vc=voice_channel)
+
         async with ctx.typing():
             fileName = await YTDLSource.from_url(url, loop=musicBot.loop)
             if not voice_channel.is_playing():
                 currently_playing = fileName
                 voice_channel.play(ds.FFmpegPCMAudio(executable='bin\\ffmpeg.exe', source=fileName),
-                                   after=lambda e: await play_next(ctx, vc=voice_channel))
+                                   after=lambda e: next_song())
                 await ctx.send("**Now playing: {}**".format(currently_playing))
             else:
                 queued_songs.append(fileName)
@@ -123,6 +128,11 @@ async def play(ctx):
 
 async def play_next(ctx, *, vc: ds.voice_client):
     global currently_playing
+
+    def next_song():
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            play_next(ctx, vc=vc)
 
     if len(queued_songs) > 0:
 
@@ -136,7 +146,7 @@ async def play_next(ctx, *, vc: ds.voice_client):
 
         currently_playing = queued_songs.pop()
         vc.play(ds.FFmpegPCMAudio(executable='bin\\ffmpeg.exe', source=currently_playing),
-                after=lambda e: await play_next(ctx, vc=vc))
+                after=lambda e: next_song())
         await ctx.send("**Now playing: {}**".format(currently_playing))
     else:
         await ctx.send("Nothing to play.")
@@ -214,6 +224,5 @@ async def stop(ctx):
 
     else:
         await ctx.send('I am doing nothing, what do you want from me.')
-
 
 musicBot.run(TOKEN)
