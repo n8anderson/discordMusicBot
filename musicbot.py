@@ -4,7 +4,7 @@ import discord as ds
 from discord.ext import commands, tasks
 import os
 from dotenv import load_dotenv
-import youtube_dl as ydl
+import yt_dlp as ydl
 
 """
 Initial setup of discord bot, this connects to any server it is added to
@@ -84,9 +84,10 @@ async def join(ctx):
 @musicBot.command(name='leave', help='Forces the bot to leave the connected channel',
                   aliases=['kick', 'drop', 'disconnect'])
 async def leave(ctx):
-    voice_client = ctx.message.guild.voice_client
-    if voice_client.is_connected():
-        await voice_client.disconnect()
+    server = ctx.message.guild
+    voice_channel = server.voice_client
+    if voice_channel.is_connected():
+        await voice_channel.disconnect()
     else:
         await ctx.send("I am not connected to any voice channels.")
 
@@ -113,8 +114,8 @@ async def pause(ctx):
     voice_client = ctx.message.guild.voice_client
 
     if voice_client.is_playing():
-        await voice_client.pause()
         await ctx.send("Music paused.")
+        await voice_client.pause()
     else:
         await ctx.send("Nothing is playing at the moment.")
 
