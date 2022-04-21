@@ -11,6 +11,8 @@ Initial setup of discord bot, this connects to any server it is added to
 and loads the intents (configuration profile) that the bot has
 """
 load_dotenv()
+queued_songs = []
+currently_playing = None
 
 TOKEN = os.getenv("BOT_TOKEN")
 
@@ -94,6 +96,8 @@ async def leave(ctx):
 
 @musicBot.command(name='play', help='Searches for and plays a song if found')
 async def play(ctx):
+    global queued_songs
+    global currently_playing
     url = ctx.message.content[5:]
 
     try:
@@ -102,11 +106,49 @@ async def play(ctx):
 
         async with ctx.typing():
             fileName = await YTDLSource.from_url(url, loop=musicBot.loop)
-            voice_channel.play(ds.FFmpegPCMAudio(executable='bin\\ffmpeg.exe', source=fileName))
-        await ctx.send("**Now playing: {}**".format(fileName))
+            if not voice_channel.is_playing():
+                currently_playing = fileName
+                voice_channel.play(ds.FFmpegPCMAudio(executable='bin\\ffmpeg.exe', source=fileName),
+                                   after=lambda e: play_next(ctx, voice_channel))
+                await ctx.send("**Now playing: {}**".format(currently_playing))
+            else:
+                queued_songs.append(fileName)
+                await ctx.send("**{} Queued.**".format(fileName))
     except Exception as E:
         print(str(E))
         await ctx.send("I am not connected to a voice channel.")
+
+
+async def play_next(ctx, vc: ds.voice_client):
+    global currently_playing
+
+    if len(queued_songs) > 0:
+
+        if vc.is_playing():
+            vc.stop()
+            await asyncio.sleep(1)
+
+        if os.path.exists(currently_playing):
+            os.remove(currently_playing)
+
+        currently_playing = queued_songs.pop()
+        await vc.play(ds.FFmpegPCMAudio(executable='bin\\ffmpeg.exe', source=currently_playing),
+                      after=lambda e: play_next(ctx, vc))
+        await ctx.send("**Now playing: {}**".format(currently_playing))
+    else:
+        await ctx.send("Nothing to play.")
+
+
+@musicBot.command(name='skip', help='Skips the current song')
+async def skip(ctx):
+    server = ctx.message.guild
+    voice_channel = server.voice_client
+
+    if voice_channel.is_playing():
+        if len(queued_songs) > 0:
+            await play_next(ctx, voice_channel)
+        else:
+            await ctx.send("Nothing to skip to.")
 
 
 @musicBot.command(name='pause', help='Pauses the current song')
@@ -138,6 +180,9 @@ async def stop(ctx):
     if voice_client.is_paused() or voice_client.is_playing():
         voice_client.stop()
         await ctx.send("Music stopped.")
+
+        if os.path.exists(currently_playing):
+            os.remove(currently_playing)
 
     else:
         await ctx.send('I am doing nothing, what do you want from me.')
