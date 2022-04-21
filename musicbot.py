@@ -13,6 +13,7 @@ and loads the intents (configuration profile) that the bot has
 load_dotenv()
 queued_songs = []
 currently_playing = None
+inUse = False
 
 TOKEN = os.getenv("BOT_TOKEN")
 
@@ -100,11 +101,12 @@ async def leave(ctx):
 async def play(ctx):
     global queued_songs
     global currently_playing
+    global inUse
     url = ctx.message.content[5:]
+    server = ctx.message.guild
+    voice_channel = server.voice_client
 
     try:
-        server = ctx.message.guild
-        voice_channel = server.voice_client
 
         def next_song():
             with warnings.catch_warnings():
@@ -122,8 +124,12 @@ async def play(ctx):
                 queued_songs.append(fileName)
                 await ctx.send("**{} Queued.**".format(fileName))
     except Exception as E:
-        print(str(E))
-        await ctx.send("I am not connected to a voice channel.")
+        if not voice_channel:
+            channel = ctx.message.author.voice.channel
+            await channel.connect()
+            await play(ctx)
+        else:
+            print(Exception, E)
 
 
 async def play_next(ctx, *, vc: ds.voice_client):
@@ -173,7 +179,7 @@ async def enqueue(ctx):
                 await play_next(ctx, vc=voice_channel)
 
     except Exception as E:
-        print(str(E))
+        print(Exception, E)
         await ctx.send("Something broke, check the console.")
 
 
