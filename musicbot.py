@@ -12,6 +12,7 @@ and loads the intents (configuration profile) that the bot has
 """
 load_dotenv()
 queued_songs = []
+stopped = False
 currently_playing = None
 inUse = False
 
@@ -28,8 +29,6 @@ this searches based on what the user inputs after the command prefix and command
 TODO: Need to add options to select from a list of songs
 """
 ydl.utils.bug_reports_message = lambda: ''
-
-# Testing comment for push
 
 ytdl_format_options = {
     'format': 'bestaudio/best',
@@ -67,7 +66,7 @@ class YTDLSource(ds.PCMVolumeTransformer):
             # take first item from a playlist
             data = data['entries'][0]
         filename = data['title'] if stream else ytdl.prepare_filename(data)
-        return filename
+        return filename, data['title']
 
 
 """
@@ -92,6 +91,7 @@ async def leave(ctx):
     server = ctx.message.guild
     voice_channel = server.voice_client
     if voice_channel.is_connected():
+        await stop(ctx)
         await voice_channel.disconnect()
     else:
         await ctx.send("I am not connected to any voice channels.")
@@ -114,15 +114,15 @@ async def play(ctx):
                 play_next(ctx, vc=voice_channel)
 
         async with ctx.typing():
-            fileName = await YTDLSource.from_url(url, loop=musicBot.loop)
+            fileName, title = await YTDLSource.from_url(url, loop=musicBot.loop)
             if not voice_channel.is_playing():
                 currently_playing = fileName
                 voice_channel.play(ds.FFmpegPCMAudio(executable='bin\\ffmpeg.exe', source=fileName),
                                    after=lambda e: next_song())
-                await ctx.send("**Now playing: {}**".format(currently_playing))
+                await ctx.send("**Now playing: {}**".format(title))
             else:
-                queued_songs.append(fileName)
-                await ctx.send("**{} Queued.**".format(fileName))
+                queued_songs.append([fileName, title])
+                await ctx.send("**{} Queued.**".format(title))
     except Exception as E:
         if not voice_channel:
             channel = ctx.message.author.voice.channel
@@ -132,30 +132,32 @@ async def play(ctx):
             print(Exception, E)
 
 
-async def play_next(ctx, *, vc: ds.voice_client):
+def play_next(ctx, vc: ds.voice_client):
     global currently_playing
+    global stopped
 
     def next_song():
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             play_next(ctx, vc=vc)
 
-    if len(queued_songs) > 0:
-
+    if len(queued_songs) > 0 and not stopped:
         if vc.is_playing():
             vc.stop()
-            await asyncio.sleep(1)
+            asyncio.sleep(1)
 
         if os.path.exists(currently_playing):
-            if queued_songs[0] != currently_playing:
+            if currently_playing not in queued_songs[0]:
                 os.remove(currently_playing)
 
-        currently_playing = queued_songs.pop()
+        currently_playing, title = queued_songs.pop()
         vc.play(ds.FFmpegPCMAudio(executable='bin\\ffmpeg.exe', source=currently_playing),
                 after=lambda e: next_song())
-        await ctx.send("**Now playing: {}**".format(currently_playing))
+        asyncio.run_coroutine_threadsafe(ctx.send("**Now playing: {}**".format(title)), musicBot.loop)
     else:
-        await ctx.send("Nothing to play.")
+        if os.path.exists(currently_playing):
+            os.remove(currently_playing)
+        asyncio.run_coroutine_threadsafe(ctx.send("Nothing to play."), musicBot.loop)
 
 
 @musicBot.command(name='enqueue', help='Queues the requested song to be played.',
@@ -216,19 +218,27 @@ async def resume(ctx):
         await ctx.send('Nothing is paused or playing at the moment.')
 
 
-@musicBot.command(name='stop', help='Stops the current song')
+@musicBot.command(name='stop', help='Stops the current song and clears the queue',
+                  aliases=['clear'])
 async def stop(ctx):
     global currently_playing
+    global stopped
     voice_client = ctx.message.guild.voice_client
 
     if voice_client.is_paused() or voice_client.is_playing():
+        stopped = True
         voice_client.stop()
         await ctx.send("Music stopped.")
 
         if os.path.exists(currently_playing):
             os.remove(currently_playing)
 
+        for collection in queued_songs:
+            if os.path.exists(collection[0]):
+                os.remove(collection[0])
+
     else:
         await ctx.send('I am doing nothing, what do you want from me.')
+
 
 musicBot.run(TOKEN)
